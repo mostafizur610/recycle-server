@@ -6,71 +6,104 @@ require('dotenv').config();
 const port = process.env.PORT || 5000;
 const app = express();
 
-// middleware
 app.use(cors());
 app.use(express.json());
 
-
+// connection db
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.etkkvpu.mongodb.net/?retryWrites=true&w=majority`;
 // console.log(uri);
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
 
-const randomStr = () => require('crypto').randomBytes(64).toString('hex');
+// middleware
+// user authentication
+const userMiddleWare = async (req, res, next) => {
+    try {
+        const bearerToken = req.headers.authorization;
+        if (!bearerToken) return res.status(404).send("No token found");
+        const token = bearerToken.replace('Bearer ', '');
+        if (!token) return res.status(401).send("Unauthorized");
+        const isVerified = await jwt.verify(token, process.env.USER_ACCESS_Token);
+        if (!isVerified) return res.status(401).send("Unauthorized");
+        req.user = isVerified;
+        next();
+    } catch (error) {
+        res.status(401).send("Unauthorized");
+    }
+}
+
+// seller authentication
+const sellerMiddleWare = async (req, res, next) => {
+    try {
+        console.log(process.env.ADMIN_ACCESS_Token);
+        const bearerToken = req.headers.authorization;
+        if (!bearerToken) return res.status(404).send("No token found");
+        const token = bearerToken.replace('Bearer ', '');
+        console.log(token);
+        if (!token) return res.status(401).send("Unauthorized");
+        const isVerified = await jwt.verify(token, process.env.SELLER_ACCESS_Token);
+        if (!isVerified) return res.status(401).send("Unauthorized");
+        req.seller = isVerified;
+        next();
+    } catch (error) {
+        res.status(401).send("Unauthorized");
+    }
+}
+
+// admin authentication
+const adminMiddleWare = async (req, res, next) => {
+    try {
+        const bearerToken = req.headers.authorization;
+        console.log(process.env.ADMIN_ACCESS_Token);
+        if (!bearerToken) return res.status(404).send("No token found");
+        const token = bearerToken.replace('Bearer ', '');
+        if (!token) return res.status(401).send("Unauthorized");
+        const isVerified = await jwt.verify(token, process.env.ADMIN_ACCESS_Token);
+        if (!isVerified) return res.status(401).send("Unauthorized");
+        req.admin = isVerified;
+        next()
+    } catch (error) {
+        res.status(401).send("Unauthorized");
+    }
+}
+
 async function run() {
     try {
         const categoriesCollection = client.db('exDesktopAccessories').collection('categories');
         const usersCollection = client.db('exDesktopAccessories').collection('users');
 
-        // user authentication
-        const userMiddleWare = async (req, res, next) => {
-            try {
-                const bearerToken = req.headers.authorization;
-                if (!bearerToken) return res.status(404).send("No token found");
-                const token = bearerToken.replace('Bearer ', '');
-                if (!token) return res.status(401).send("Unauthorized");
-                const isVerified = await jwt.verify(token, process.env.USER_ACCESS_Token);
-                if (!isVerified) return res.status(401).send("Unauthorized");
-                req.user = isVerified;
-                next();
-            } catch (error) {
-                res.status(401).send("Unauthorized");
-            }
-        }
+        // google login or signup
 
-        // seller authentication
-        const sellerMiddleWare = async (req, res, next) => {
-            try {
-                console.log(process.env.ADMIN_ACCESS_Token);
-                const bearerToken = req.headers.authorization;
-                if (!bearerToken) return res.status(404).send("No token found");
-                const token = bearerToken.replace('Bearer ', '');
-                console.log(token);
-                if (!token) return res.status(401).send("Unauthorized");
-                const isVerified = await jwt.verify(token, process.env.SELLER_ACCESS_Token);
-                if (!isVerified) return res.status(401).send("Unauthorized");
-                req.seller = isVerified;
-                next();
-            } catch (error) {
-                res.status(401).send("Unauthorized");
+        // Signup user, seller
+        app.post('/google', async (req, res) => {
+            let token;
+            const { email, name, role } = req.body;
+            const user = {
+                name, email, role, provider: 'google', isVerified: false
             }
-        }
 
-        // admin authentication
-        const adminMiddleWare = async (req, res, next) => {
-            try {
-                const bearerToken = req.headers.authorization;
-                console.log(process.env.ADMIN_ACCESS_Token);
-                if (!bearerToken) return res.status(404).send("No token found");
-                const token = bearerToken.replace('Bearer ', '');
-                if (!token) return res.status(401).send("Unauthorized");
-                const isVerified = await jwt.verify(token, process.env.ADMIN_ACCESS_Token);
-                if (!isVerified) return res.status(401).send("Unauthorized");
-                req.admin = isVerified;
-                next()
-            } catch (error) {
-                res.status(401).send("Unauthorized");
+            const existUser = await usersCollection.findOne({ email: email, provider: 'google' });
+
+            if (!existUser) {
+                const result = await usersCollection.insertOne(user);
+                const newUser = await usersCollection.findOne({ _id: result.insertedId });
+                token = jwt.sign({ _id: newUser._id, name: newUser.name }, process.env.USER_ACCESS_Token);
+                return res.status(200).json({
+                    name: newUser.name,
+                    email: newUser.email,
+                    role: role,
+                    token: token
+                });
             }
-        }
+
+            token = jwt.sign({ _id: existUser._id, name: existUser.name }, process.env.USER_ACCESS_Token);
+
+            res.status(200).json({
+                name: existUser.name,
+                email: existUser.email,
+                role: role,
+                token: token
+            });
+        });
 
         // Signup user, seller
         app.post('/signup', async (req, res) => {
@@ -108,17 +141,19 @@ async function run() {
         });
 
         // categories
-        app.get('/categories', userMiddleWare, async (req, res) => {
+        // userMiddleWare
+        app.get('/categories', async (req, res) => {
             const query = {};
             const categories = await categoriesCollection.find(query).toArray();
             res.status(200).send(categories);
         });
 
+
         // get one category
         app.get('/category/:id', async (req, res) => {
             const { id } = req.params;
-
             const query = { _id: ObjectId(id) };
+            console.log(query);
             const category = await categoriesCollection.findOne(query);
             res.status(200).send(category);
         });
@@ -133,8 +168,13 @@ async function run() {
         //     res.status(201).send(category);
         // });
 
+
+
+
+
         // Product creation for seller
-        app.put('/category/:id/product', sellerMiddleWare, async (req, res) => {
+        // sellerMiddleWare
+        app.put('/category/:id/product', async (req, res) => {
             const categoryId = req.params.id;
             const { p_name, p_img, resale_price, original_price, condition_type, phone_number, seller_location, year_of_use } = req.body;
 
@@ -147,9 +187,12 @@ async function run() {
         });
 
 
+
+
         // admin api
-        // seller verfication
-        app.put('/seller/:id', [adminMiddleWare], async (req, res) => {
+        // seller verification
+        // adminMiddleWare
+        app.put('/seller/:id', async (req, res) => {
             const sellerId = req.params.id;
             const { isVerified } = req.body;
 
