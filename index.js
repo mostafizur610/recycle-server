@@ -283,8 +283,6 @@ async function run() {
             res.send(user)
         })
 
-
-
         // Product delete for seller
         app.delete('/category/:id/product/:productId', async (req, res) => {
             const categoryId = req.params.id;
