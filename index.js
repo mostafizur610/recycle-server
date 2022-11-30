@@ -6,15 +6,15 @@ require('dotenv').config();
 const port = process.env.PORT || 5000;
 const app = express();
 
+// middleware
 app.use(cors());
 app.use(express.json());
 
 
-
 // connection db
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.etkkvpu.mongodb.net/?retryWrites=true&w=majority`;
-// console.log(uri);
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
+
 
 // middleware
 // user authentication
@@ -32,6 +32,7 @@ const userMiddleWare = async (req, res, next) => {
         res.status(401).send("Unauthorized");
     }
 }
+
 
 // seller authentication
 const sellerMiddleWare = async (req, res, next) => {
@@ -51,6 +52,7 @@ const sellerMiddleWare = async (req, res, next) => {
     }
 }
 
+
 // admin authentication
 const adminMiddleWare = async (req, res, next) => {
     try {
@@ -68,13 +70,14 @@ const adminMiddleWare = async (req, res, next) => {
     }
 }
 
+
 async function run() {
     try {
         const categoriesCollection = client.db('exDesktopAccessories').collection('categories');
         const usersCollection = client.db('exDesktopAccessories').collection('users');
         const ordersCollection = client.db('exDesktopAccessories').collection('orders');
-        // google login or signup
 
+        // google login or signup
         // Signup user, seller
         app.post('/google', async (req, res) => {
             let token;
@@ -142,13 +145,14 @@ async function run() {
             });
         });
 
+
         // categories
-        // userMiddleWare
         app.get('/categories', async (req, res) => {
             const query = {};
             const categories = await categoriesCollection.find(query).toArray();
             res.status(200).send(categories);
         });
+
 
         // get one category
         app.get('/category/:id', async (req, res) => {
@@ -158,6 +162,7 @@ async function run() {
             const category = await categoriesCollection.findOne(query);
             res.status(200).send(category);
         });
+
 
         // order product
         app.post('/order/:productId', userMiddleWare, async (req, res) => {
@@ -183,6 +188,8 @@ async function run() {
         //     res.status(201).send(category);
         // });
 
+
+
         // advertised productData
         app.get('/product/advertised', async (req, res) => {
             const query = {
@@ -199,6 +206,7 @@ async function run() {
             const categories = await categoriesCollection.aggregate([query]).toArray();
             res.status(200).send(categories);
         });
+
 
         // seller productData
         app.get('/product', sellerMiddleWare, async (req, res) => {
@@ -218,18 +226,18 @@ async function run() {
             res.status(200).send(categories);
         });
 
+
         // Product creation for seller
         app.put('/category/:id/product', sellerMiddleWare, async (req, res) => {
             const categoryId = req.params.id;
             const { p_name, p_img, resale_price, original_price, condition_type, phone_number, location, year_of_use, description } = req.body;
-
             const productData = { _id: ObjectId(req.seller._id), p_name, p_img, description, resale_price, original_price, year_of_use, condition_type, phone_number, seller_location: location, seller_name: req.seller.name, isAvailable: true, isAdvertised: false, created_at: new Date(), update_at: new Date() };
             const category = await categoriesCollection.updateOne({ _id: ObjectId(categoryId) }, {
                 $push: { "products": productData }
             });
-
             res.status(200).send(category);
         });
+
 
         // Product update for seller
         app.put('/category/:id/product/:productId/advertise', sellerMiddleWare, async (req, res) => {
@@ -240,11 +248,10 @@ async function run() {
                 { _id: ObjectId(categoryId), "products._id": ObjectId(productId) },
                 { $set: { "products.$.isAdvertised": true } }
             );
-
             console.log(product);
-
             res.status(200).send(product);
         });
+
 
         // admin api
         // seller verification
@@ -252,13 +259,20 @@ async function run() {
         app.put('/seller/:id', async (req, res) => {
             const sellerId = req.params.id;
             const { isVerified } = req.body;
-
             const seller = await usersCollection.updateOne({ _id: ObjectId(sellerId) }, {
                 $set: { "isVerified": isVerified }
             });
-
             res.status(200).send(seller);
         });
+
+
+        // all users 
+        app.get('/users', async (req, res) => {
+            const role = req.query.type;
+            const query = role ? { role: role } : {};
+            const users = await usersCollection.find(query).toArray();
+            res.send(users)
+        })
     }
     finally {
 
@@ -270,6 +284,7 @@ run().catch(error => console.error());
 app.get('/', async (req, res) => {
     res.send('Recycle server is running')
 })
+
 
 app.listen(port, () => {
     console.log(`Recycle Running On ${port}`);
