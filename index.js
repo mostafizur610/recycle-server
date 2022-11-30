@@ -273,6 +273,31 @@ async function run() {
             const users = await usersCollection.find(query).toArray();
             res.send(users)
         })
+
+        app.delete('/user/:id', async (req, res) => {
+            const id = req.params.id;
+            console.log(id);
+            const query = { _id: ObjectId(id) };
+            const user = await usersCollection.deleteOne(query);
+            console.log(user);
+            res.send(user)
+        })
+
+
+
+        // Product delete for seller
+        app.delete('/category/:id/product/:productId', async (req, res) => {
+            const categoryId = req.params.id;
+            const productId = req.params.productId;
+            console.log(categoryId, productId);
+            const product = await categoriesCollection.deleteOne(
+                { _id: ObjectId(categoryId), "products._id": ObjectId(productId) }
+            );
+            console.log(product);
+            res.status(200).send(product);
+        });
+
+
     }
     finally {
 
