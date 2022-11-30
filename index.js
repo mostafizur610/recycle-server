@@ -9,6 +9,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+
+
 // connection db
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.etkkvpu.mongodb.net/?retryWrites=true&w=majority`;
 // console.log(uri);
@@ -70,7 +72,7 @@ async function run() {
     try {
         const categoriesCollection = client.db('exDesktopAccessories').collection('categories');
         const usersCollection = client.db('exDesktopAccessories').collection('users');
-
+        const ordersCollection = client.db('exDesktopAccessories').collection('orders');
         // google login or signup
 
         // Signup user, seller
@@ -148,7 +150,6 @@ async function run() {
             res.status(200).send(categories);
         });
 
-
         // get one category
         app.get('/category/:id', async (req, res) => {
             const { id } = req.params;
@@ -156,6 +157,20 @@ async function run() {
             console.log(query);
             const category = await categoriesCollection.findOne(query);
             res.status(200).send(category);
+        });
+
+        // order product
+        app.post('/order/:productId', userMiddleWare, async (req, res) => {
+            const { productId } = req.params;
+            const { categoryId, phone_number, meeting_location } = req.body;
+            const data = {
+                product_id: productId,
+                category_id: categoryId,
+                phone_number,
+                meeting_location
+            }
+            const order = await ordersCollection.insertOne(data);
+            res.status(200).send(order);
         });
 
 
@@ -168,17 +183,47 @@ async function run() {
         //     res.status(201).send(category);
         // });
 
+        // advertised productData
+        app.get('/product/advertised', async (req, res) => {
+            const query = {
+                $project: {
+                    products: {
+                        $filter: {
+                            input: "$products",
+                            as: "product",
+                            cond: { $eq: ["$$product.isAdvertised", true] }
+                        }
+                    }
+                }
+            }
+            const categories = await categoriesCollection.aggregate([query]).toArray();
+            res.status(200).send(categories);
+        });
 
-
-
+        // seller productData
+        app.get('/product', sellerMiddleWare, async (req, res) => {
+            const sellerName = req.seller.name;
+            const query = {
+                $project: {
+                    products: {
+                        $filter: {
+                            input: "$products",
+                            as: "product",
+                            cond: { $eq: ["$$product.seller_name", `${sellerName}`] }
+                        }
+                    }
+                }
+            }
+            const categories = await categoriesCollection.aggregate([query]).toArray();
+            res.status(200).send(categories);
+        });
 
         // Product creation for seller
-        // sellerMiddleWare
-        app.put('/category/:id/product', async (req, res) => {
+        app.put('/category/:id/product', sellerMiddleWare, async (req, res) => {
             const categoryId = req.params.id;
-            const { p_name, p_img, resale_price, original_price, condition_type, phone_number, seller_location, year_of_use } = req.body;
+            const { p_name, p_img, resale_price, original_price, condition_type, phone_number, location, year_of_use, description } = req.body;
 
-            const productData = { _id: req.seller._id, p_name, p_img, resale_price, original_price, year_of_use, condition_type, phone_number, seller_location, name: req.seller.name, created_at: new Date(), update_at: new Date() };
+            const productData = { _id: ObjectId(req.seller._id), p_name, p_img, description, resale_price, original_price, year_of_use, condition_type, phone_number, seller_location: location, seller_name: req.seller.name, isAvailable: true, isAdvertised: false, created_at: new Date(), update_at: new Date() };
             const category = await categoriesCollection.updateOne({ _id: ObjectId(categoryId) }, {
                 $push: { "products": productData }
             });
@@ -186,8 +231,20 @@ async function run() {
             res.status(200).send(category);
         });
 
+        // Product update for seller
+        app.put('/category/:id/product/:productId/advertise', sellerMiddleWare, async (req, res) => {
+            const categoryId = req.params.id;
+            const productId = req.params.productId;
+            console.log(categoryId, productId);
+            const product = await categoriesCollection.updateOne(
+                { _id: ObjectId(categoryId), "products._id": ObjectId(productId) },
+                { $set: { "products.$.isAdvertised": true } }
+            );
 
+            console.log(product);
 
+            res.status(200).send(product);
+        });
 
         // admin api
         // seller verification
